@@ -16,8 +16,9 @@ BOT_TOKEN = "8978386709:AAHBmrZlB8puJ0dwN910Qrgjh5vZfXn6eCM"
 PUMP_API_KEY = "adn4ue2ha994wy9m9hwp8gjpf9pm8vhhahpq4uk8e1bk0ukh5d4pmra18x1qct1hc5x78p36cxk30wveenj5evubb1kmex3j8rqq2nk5a8nnawhjcxc6euhf94ujpaujd116uwa9a4yku65a32y38cxx5mgvg71rpjgvh8mf5h7my1nccrprkvue5ujypa4dt8k2dj5ad0kuf8"
 GROUP_ID = "-1003911675310"
 
-# FIXED: Using your live GitHub URL because local image files get erased on Render's ephemeral containers
-IMAGE_URL = "https://github.com" 
+# New verified CDN image URL
+IMAGE_URL = "https://cdn.phototourl.com/free/2026-07-17-cb4c3ca6-2ac3-4ff9-9468-37ff40cf735a.jpg" 
+
 
 # Initialize the Telegram Bot
 bot = telebot.TeleBot(BOT_TOKEN)
