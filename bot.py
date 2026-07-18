@@ -16,17 +16,57 @@ BOT_TOKEN = "8978386709:AAHBmrZlB8puJ0dwN910Qrgjh5vZfXn6eCM"
 PUMP_API_KEY = "adn4ue2ha994wy9m9hwp8gjpf9pm8vhhahpq4uk8e1bk0ukh5d4pmra18x1qct1hc5x78p36cxk30wveenj5evubb1kmex3j8rqq2nk5a8nnawhjcxc6euhf94ujpaujd116uwa9a4yku65a32y38cxx5mgvg71rpjgvh8mf5h7my1nccrprkvue5ujypa4dt8k2dj5ad0kuf8"
 GROUP_ID = "-1003911675310"
 
-# New verified CDN image URL
-IMAGE_URL = "https://cdn.phototourl.com/free/2026-07-17-cb4c3ca6-2ac3-4ff9-9468-37ff40cf735a.jpg" 
+# Direct verified CDN image URL path
+IMAGE_URL = "https://phototourl.com" 
 
-
-# Initialize the Telegram Bot
+# Global state trackers to manage running services safely
 bot = telebot.TeleBot(BOT_TOKEN)
+stream_active = False
+stream_lock = threading.Lock()
+current_ws = None  # Tracks the active connection to close it on stop
 
 
-@bot.message_handler(commands=['start', 'help'])
+@bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Hello! I am a bot that forwards new token alerts from pump.fun with an image banner.")
+    """
+    Handles the /start command. Boots up the pump.fun websocket stream.
+    """
+    global stream_active
+    
+    with stream_lock:
+        if not stream_active:
+            bot.reply_to(message, "⚡ <b>PumpPortal stream triggered!</b> Live token updates will now stream instantly into this chat layout.", parse_mode="HTML")
+            print("[System] /start command detected. Spawning background WebSocket thread now...")
+            stream_active = True
+            ws_thread = threading.Thread(target=run_websocket)
+            ws_thread.daemon = True
+            ws_thread.start()
+        else:
+            bot.reply_to(message, "ℹ️ <b>Stream is already running</b> and posting updates.", parse_mode="HTML")
+
+
+@bot.message_handler(commands=['stop'])
+def stop_stream(message):
+    """
+    Handles the /stop command. Safely breaks the active loop and closes the WebSocket connection.
+    """
+    global stream_active, current_ws
+    
+    with stream_lock:
+        if stream_active:
+            bot.reply_to(message, "🛑 <b>Stopping stream...</b> Live token updates have been paused.", parse_mode="HTML")
+            print("[System] /stop command detected. Terminating active data stream...")
+            stream_active = False
+            
+            # Force close the socket connection immediately if it exists
+            if current_ws:
+                try:
+                    current_ws.close()
+                except Exception:
+                    pass
+                current_ws = None
+        else:
+            bot.reply_to(message, "ℹ️ <b>Stream is already stopped.</b> Type /start to activate it again.", parse_mode="HTML")
 
 
 def format_message(data):
@@ -82,11 +122,12 @@ def create_inline_keyboard(mint_address):
 # HTTPX WEBSOCKET STREAM LOGIC
 # ==========================================
 def listen_to_stream(ws: WebSocketSession):
+    global stream_active
     print("[Status] Connected to PumpPortal WebSocket. Subscribing to token creation stream...")
     payload = {"method": "subscribeNewToken"}
     ws.send_text(json.dumps(payload))
 
-    while True:
+    while stream_active: # Will break out of loop cleanly if stream_active changes to False
         try:
             message = ws.receive_text()
             data = json.loads(message)
@@ -95,10 +136,14 @@ def listen_to_stream(ws: WebSocketSession):
                 print(f"[Alert] New token detected: {data.get('name')} ({data.get('mint')}). Applying 3-second sleep timer...")
                 
                 time.sleep(3)
+                
+                # Check again after sleep to ensure user didn't hit stop during those 3 seconds
+                if not stream_active:
+                    break
+                    
                 formatted_caption, mint_address = format_message(data)
                 reply_markup = create_inline_keyboard(mint_address)
                 
-                # FIXED: Send photo directly using the GitHub URL string instead of local directory file opens
                 bot.send_photo(
                     chat_id=GROUP_ID,
                     photo=IMAGE_URL,
@@ -115,19 +160,24 @@ def listen_to_stream(ws: WebSocketSession):
 
 
 def run_websocket():
+    global stream_active, current_ws
     ws_url = f"wss://pumpportal.fun/api/data?api-key={PUMP_API_KEY}"
-    while True:
+    
+    while stream_active:
         try:
             print("[Status] Attempting to connect to PumpPortal using HTTPX...")
             with connect_ws(ws_url) as ws:
+                current_ws = ws # Save globally so stop handler can reach it
                 listen_to_stream(ws)
         except WebSocketNetworkError as ne:
             print(f"[Error] Network exception dropped connection: {ne}")
         except Exception as e:
             print(f"[Error] Connection loop failure: {e}")
         
-        print("[Status] Reconnecting to WebSocket in 5 seconds...")
-        time.sleep(5)
+        # Only try to reconnect if the user didn't intentionally stop the bot
+        if stream_active:
+            print("[Status] Reconnecting to WebSocket in 5 seconds...")
+            time.sleep(5)
 
 
 # ==========================================
@@ -141,13 +191,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is Awake!")
 
 def run_health_server():
-    # Render binds web traffic to port 10000 by default on free tiers
     server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
     print("[System] Anti-sleep local web server active on port 10000")
     server.serve_forever()
 
 def keep_alive_loop():
-    # Automatically triggers a port hit every 10 minutes to reset Render's 15-minute inactivity tracker
     while True:
         time.sleep(600)
         try:
@@ -163,14 +211,9 @@ def keep_alive_loop():
 if __name__ == "__main__":
     print("[System] Initializing bot services...")
 
-    # Start Render's sleep prevention layers first
+    # Start Render's sleep prevention layers immediately
     threading.Thread(target=run_health_server, daemon=True).start()
     threading.Thread(target=keep_alive_loop, daemon=True).start()
-
-    # Spawn the HTTPX stream worker within a background daemon thread
-    ws_thread = threading.Thread(target=run_websocket)
-    ws_thread.daemon = True
-    ws_thread.start()
 
     print("[System] Starting TeleBot long polling runner...")
     while True:
