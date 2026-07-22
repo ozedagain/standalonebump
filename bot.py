@@ -16,7 +16,7 @@ BOT_TOKEN = "8978386709:AAHBmrZlB8puJ0dwN910Qrgjh5vZfXn6eCM"
 PUMP_API_KEY = "adn4ue2ha994wy9m9hwp8gjpf9pm8vhhahpq4uk8e1bk0ukh5d4pmra18x1qct1hc5x78p36cxk30wveenj5evubb1kmex3j8rqq2nk5a8nnawhjcxc6euhf94ujpaujd116uwa9a4yku65a32y38cxx5mgvg71rpjgvh8mf5h7my1nccrprkvue5ujypa4dt8k2dj5ad0kuf8"
 
 # Your permanent 13-digit private channel ID layout
-GROUP_ID = "-1003911675310" 
+GROUP_ID = "-1004285512360" 
 
 # Direct verified GitHub raw image path 
 IMAGE_URL = "https://github.com" 
