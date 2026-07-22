@@ -17,7 +17,9 @@ PUMP_API_KEY = "adn4ue2ha994wy9m9hwp8gjpf9pm8vhhahpq4uk8e1bk0ukh5d4pmra18x1qct1h
 GROUP_ID = "-1003911675310"
 
 # Direct verified CDN image URL path
-IMAGE_URL = "https://phototourl.com" 
+# Direct verified GitHub raw image URL path
+IMAGE_URL = "https://github.com/ozedagain/standalonebump/blob/main/bump.jpg?raw=true" 
+ 
 
 # Global state trackers to manage running services safely
 bot = telebot.TeleBot(BOT_TOKEN)
