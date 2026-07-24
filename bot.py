@@ -34,8 +34,66 @@ BOOST_OPTIONS = [
 ]
 VOLUME_OPTIONS = ["1.2", "2.0", "5.1", "7.5", "10.4"]
 MC_OPTIONS = ["20", "35", "48", "60", "73", "85", "97", "120"]
+SEEN_MINTS_PATH = os.path.join(BASE_DIR, "seen_mints.json")
+MAX_SEEN_MINTS = 5000
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+_seen_mints_lock = threading.Lock()
+_seen_mints = set()
+_seen_mints_order = []
+
+
+def _load_seen_mints():
+    global _seen_mints, _seen_mints_order
+    if not os.path.isfile(SEEN_MINTS_PATH):
+        return
+    try:
+        with open(SEEN_MINTS_PATH, "r", encoding="utf-8") as f:
+            items = json.load(f)
+        if isinstance(items, list):
+            _seen_mints_order = [str(m) for m in items if m][-MAX_SEEN_MINTS:]
+            _seen_mints = set(_seen_mints_order)
+            print(f"[System] Loaded {len(_seen_mints)} previously seen CAs.")
+    except Exception as e:
+        print(f"[System] Could not load seen mints: {e}")
+
+
+def _save_seen_mints():
+    try:
+        with open(SEEN_MINTS_PATH, "w", encoding="utf-8") as f:
+            json.dump(_seen_mints_order[-MAX_SEEN_MINTS:], f)
+    except Exception as e:
+        print(f"[System] Could not save seen mints: {e}")
+
+
+def claim_mint(mint):
+    """Return True if this CA is new and reserved for posting."""
+    if not mint or mint == "Unknown Address":
+        return False
+    mint = str(mint)
+    with _seen_mints_lock:
+        if mint in _seen_mints:
+            return False
+        _seen_mints.add(mint)
+        _seen_mints_order.append(mint)
+        while len(_seen_mints_order) > MAX_SEEN_MINTS:
+            oldest = _seen_mints_order.pop(0)
+            _seen_mints.discard(oldest)
+        _save_seen_mints()
+        return True
+
+
+def release_mint(mint):
+    """Allow retry if posting failed after a claim."""
+    global _seen_mints_order
+    if not mint:
+        return
+    mint = str(mint)
+    with _seen_mints_lock:
+        _seen_mints.discard(mint)
+        _seen_mints_order = [m for m in _seen_mints_order if m != mint]
+        _save_seen_mints()
 
 
 def truncate_address(address: str) -> str:
@@ -133,13 +191,23 @@ def send_alert(image_path, caption):
 
 
 def post_token_alerts(data):
-    """Post bump + volume alerts using local directory images."""
-    send_alert(BUMP_IMAGE_PATH, format_bump_message(data))
-    print(f"[Alert] Bump alert posted ({os.path.basename(BUMP_IMAGE_PATH)}).")
+    """Post bump + volume alerts using local directory images. Skips duplicate CAs."""
+    mint = data.get("mint")
+    if not claim_mint(mint):
+        print(f"[Alert] Skipping duplicate CA: {mint}")
+        return False
 
-    time.sleep(1)
-    send_alert(VOLUME_IMAGE_PATH, format_volume_message(data))
-    print(f"[Alert] Volume alert posted ({os.path.basename(VOLUME_IMAGE_PATH)}).")
+    try:
+        send_alert(BUMP_IMAGE_PATH, format_bump_message(data))
+        print(f"[Alert] Bump alert posted ({os.path.basename(BUMP_IMAGE_PATH)}).")
+
+        time.sleep(1)
+        send_alert(VOLUME_IMAGE_PATH, format_volume_message(data))
+        print(f"[Alert] Volume alert posted ({os.path.basename(VOLUME_IMAGE_PATH)}).")
+        return True
+    except Exception:
+        release_mint(mint)
+        raise
 
 
 # ==========================================
@@ -156,8 +224,14 @@ def listen_to_stream(ws):
             data = json.loads(message)
 
             if data.get("txType") == "create" or "mint" in data:
-                print(f"[Alert] New token: {data.get('name')} ({data.get('mint')}). Applying 3s delay...")
-                time.sleep(3)
+                mint = data.get("mint")
+                if mint and mint in _seen_mints:
+                    print(f"[Alert] Skipping duplicate CA: {mint}")
+                    continue
+
+                delay = random.choice([3, 4, 6])
+                print(f"[Alert] New token: {data.get('name')} ({mint}). Applying {delay}s delay...")
+                time.sleep(delay)
                 post_token_alerts(data)
 
         except json.JSONDecodeError:
@@ -232,8 +306,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length) if length else b"{}"
             data = json.loads(raw.decode("utf-8") or "{}")
-            post_token_alerts(data)
-            self._send_json(200, {"ok": True, "message": "Bump and volume alerts posted"})
+            posted = post_token_alerts(data)
+            if posted:
+                self._send_json(200, {"ok": True, "message": "Bump and volume alerts posted"})
+            else:
+                self._send_json(200, {"ok": True, "skipped": True, "message": "Duplicate CA skipped"})
         except Exception as e:
             print(f"[Webhook] Failed to post alerts: {e}")
             self._send_json(500, {"ok": False, "error": str(e)})
@@ -265,6 +342,8 @@ if __name__ == "__main__":
     for path in (BUMP_IMAGE_PATH, VOLUME_IMAGE_PATH):
         if not os.path.isfile(path):
             raise FileNotFoundError(f"Required image missing in bot directory: {path}")
+
+    _load_seen_mints()
 
     # 1. Start Render health check + webhook server thread
     threading.Thread(target=run_health_server, daemon=True).start()
