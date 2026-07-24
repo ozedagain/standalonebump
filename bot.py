@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import threading
 import time
@@ -16,62 +17,74 @@ BOT_TOKEN = "8978386709:AAHBmrZlB8puJ0dwN910Qrgjh5vZfXn6eCM"
 PUMP_API_KEY = "adn4ue2ha994wy9m9hwp8gjpf9pm8vhhahpq4uk8e1bk0ukh5d4pmra18x1qct1hc5x78p36cxk30wveenj5evubb1kmex3j8rqq2nk5a8nnawhjcxc6euhf94ujpaujd116uwa9a4yku65a32y38cxx5mgvg71rpjgvh8mf5h7my1nccrprkvue5ujypa4dt8k2dj5ad0kuf8"
 
 # Your permanent 13-digit private channel ID layout
-GROUP_ID = "-1004285512360" 
+GROUP_ID = "-1004285512360"
 
-# Direct verified GitHub raw image path 
-IMAGE_URL = "https://github.com" 
+PUMP_BOT_URL = "https://t.me/Pump_officialBot"
+IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bump.jpg")
+
+BOOST_OPTIONS = [
+    "0.25",
+    "0.35",
+    "0.45",
+    "0.55",
+    "0.85 Mega boost",
+    "1.00 Mega boost",
+]
+VOLUME_OPTIONS = ["1.2", "2.0", "5.1", "7.5", "10.4"]
+MC_OPTIONS = ["20", "35", "48", "60", "73", "85", "97", "120"]
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+
+def truncate_address(address: str) -> str:
+    """Format CA like DFqUQztL.....VfwsYFpump"""
+    if not address or len(address) <= 18:
+        return address
+    return f"{address[:8]}.....{address[-10:]}"
+
 
 # ==========================================
 # TEXT FORMATTING LOGIC
 # ==========================================
 def format_message(data):
-    ticker = data.get("vbc", data.get("symbol", "UNKNOWN")).upper()
+    ticker = data.get("symbol", data.get("vbc", "UNKNOWN")).upper()
     token_name = data.get("name", "Unknown Name").upper()
     mint_address = data.get("mint", "Unknown Address")
+    truncated_ca = truncate_address(mint_address)
 
-    package_tiers = [
-        ("0.2", "2 Hours"), ("0.4", "3 Hours"), ("0.6", "4 Hours"),
-        ("1.5", "6 Hours"), ("2.5", "12 Hours")
-    ]
-    random_package, random_duration = random.choice(package_tiers)
-
-    mc_options = ["60", "73", "53", "79", "64", "90", "145", "67"]
-    v60_options = ["123", "245", "89", "312", "174", "420", "95", "210"]
-    random_mc = random.choice(mc_options)
-    random_v60 = random.choice(v60_options)
+    random_boost = random.choice(BOOST_OPTIONS)
+    random_volume = random.choice(VOLUME_OPTIONS)
+    random_mc = random.choice(MC_OPTIONS)
 
     twitter = data.get("twitter")
     telegram = data.get("telegram")
     website = data.get("website")
 
     socials_list = []
-    socials_list.append(f'<a href="{website}"><b>𝗪𝗲𝗯</b></a>' if website else "<b>𝗪𝗲𝗯</b>")
-    socials_list.append(f'<a href="{telegram}"><b>𝗧𝗴</b></a>' if telegram else "<b>𝗧𝗴</b>")
-    socials_list.append(f'<a href="{twitter}"><b>𝗫</b></a>' if twitter else "<b>𝗫</b>")
-    socials_text = " | ".join(socials_list)
+    socials_list.append(f'<a href="{twitter}">𝕏 Twitter</a>' if twitter else "𝕏 Twitter")
+    socials_list.append(f'<a href="{telegram}">✈️ Telegram</a>' if telegram else "✈️ Telegram")
+    socials_list.append(f'<a href="{website}">🌐 Website</a>' if website else "🌐 Website")
+    socials_text = "  |  ".join(socials_list)
+
+    pump_link = f"https://pump.fun/coin/{mint_address}"
 
     message = (
-        f"📣 | <b>BUMP BOOST!</b>\n\n\n"
-        f"✅ | <b>${ticker}</b> has just gotten bumps.\n\n"
-        f"🔷 | <b>Contract Address:</b>\n"
-        f"<code>{mint_address}</code>\n\n"
-        f"®️ | <b>Name:</b> {token_name}\n"
-        f"©️ | <b>Ticker:</b> ${ticker}\n"
-        f"📈 | <b>MC:</b> ${random_mc}k\n"
-        f"📈 | <b>V 60min:</b> ${random_v60}\n"
-        f"📣 | <b>Socials:</b> {socials_text}\n\n"
-        f"⭐️ | <b>Package:</b> {random_package}\n"
-        f"⚙️ | <b>Duration:</b> {random_duration}"
+        f"🚀 <b>NEW BUMP ALERT</b>\n"
+        f"                    <b>${ticker}</b>\n"
+        f"Address:  <code>{truncated_ca}</code>\n"
+        f"Boost- {random_boost}\n"
+        f"Volume: {random_volume}\n"
+        f"Name:     {token_name}\n"
+        f"MC:  ${random_mc}k\n\n"
+        f"Socials:  {socials_text}\n\n"
+        f'<a href="{pump_link}">📊 View on Pump.fun</a>'
     )
-    return message, mint_address
+    return message
 
 
-def create_inline_keyboard(mint_address):
+def create_inline_keyboard():
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton(text="⚡ Quick Buy (PumpPortal)", url=f"https://pump.fun{mint_address}"))
-    markup.add(InlineKeyboardButton(text="📈 Trade on Photon", url=f"https://tinyastro.io{mint_address}"))
+    markup.add(InlineKeyboardButton(text="💊 Start PumpFun Bot", url=PUMP_BOT_URL))
     return markup
 
 
@@ -91,19 +104,19 @@ def listen_to_stream(ws):
             if data.get("txType") == "create" or "mint" in data:
                 print(f"[Alert] New token: {data.get('name')} ({data.get('mint')}). Applying 3s delay...")
                 time.sleep(3)
-                    
-                formatted_caption, mint_address = format_message(data)
-                reply_markup = create_inline_keyboard(mint_address)
-                
-                # Directly broadcasts to your private channel identifier
-                bot.send_photo(
-                    chat_id=GROUP_ID,
-                    photo=IMAGE_URL,
-                    caption=formatted_caption,
-                    parse_mode="HTML",
-                    reply_markup=reply_markup
-                )
-                    
+
+                formatted_caption = format_message(data)
+                reply_markup = create_inline_keyboard()
+
+                with open(IMAGE_PATH, "rb") as photo:
+                    bot.send_photo(
+                        chat_id=GROUP_ID,
+                        photo=photo,
+                        caption=formatted_caption,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup,
+                    )
+
         except json.JSONDecodeError:
             continue
         except Exception as e:
