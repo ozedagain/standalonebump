@@ -111,6 +111,9 @@ def create_inline_keyboard():
 
 
 def send_alert(image_path, caption):
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Alert image not found: {image_path}")
+
     reply_markup = create_inline_keyboard()
     with open(image_path, "rb") as photo:
         bot.send_photo(
@@ -120,6 +123,16 @@ def send_alert(image_path, caption):
             parse_mode="HTML",
             reply_markup=reply_markup,
         )
+
+
+def post_token_alerts(data):
+    """Post bump + volume alerts using local directory images."""
+    send_alert(BUMP_IMAGE_PATH, format_bump_message(data))
+    print(f"[Alert] Bump alert posted ({os.path.basename(BUMP_IMAGE_PATH)}).")
+
+    time.sleep(1)
+    send_alert(VOLUME_IMAGE_PATH, format_volume_message(data))
+    print(f"[Alert] Volume alert posted ({os.path.basename(VOLUME_IMAGE_PATH)}).")
 
 
 # ==========================================
@@ -138,13 +151,7 @@ def listen_to_stream(ws):
             if data.get("txType") == "create" or "mint" in data:
                 print(f"[Alert] New token: {data.get('name')} ({data.get('mint')}). Applying 3s delay...")
                 time.sleep(3)
-
-                send_alert(BUMP_IMAGE_PATH, format_bump_message(data))
-                print("[Alert] Bump alert posted.")
-
-                time.sleep(1)
-                send_alert(VOLUME_IMAGE_PATH, format_volume_message(data))
-                print("[Alert] Volume alert posted.")
+                post_token_alerts(data)
 
         except json.JSONDecodeError:
             continue
@@ -155,7 +162,7 @@ def listen_to_stream(ws):
 
 def run_websocket():
     ws_url = f"wss://pumpportal.fun/api/data?api-key={PUMP_API_KEY}"
-    
+
     while True:
         try:
             print("[Status] Attempting to connect to PumpPortal using HTTPX...")
@@ -166,25 +173,73 @@ def run_websocket():
             print(f"[Error] Network drop: {ne}")
         except Exception as e:
             print(f"[Error] Connection loop failure: {e}")
-        
+
         print("[Status] Reconnecting to WebSocket in 5 seconds...")
         time.sleep(5)
 
 
 # ==========================================
-# RENDER ANTI-SLEEP LOOPHOLE INFRASTRUCTURE
+# RENDER ANTI-SLEEP + ALERT WEBHOOK
 # ==========================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        print(f"[HTTP] {self.address_string()} - {format % args}")
+
+    def _send_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        if self.path in ("/bump.jpg", "/volume.png"):
+            filename = self.path.lstrip("/")
+            image_path = os.path.join(BASE_DIR, filename)
+            if not os.path.isfile(image_path):
+                self.send_error(404, f"{filename} not found")
+                return
+
+            content_type = "image/jpeg" if filename.endswith(".jpg") else "image/png"
+            with open(image_path, "rb") as image_file:
+                data = image_file.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
+        self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot is Awake!")
 
+    def do_POST(self):
+        if self.path not in ("/webhook", "/alert"):
+            self._send_json(404, {"ok": False, "error": "Not found"})
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            data = json.loads(raw.decode("utf-8") or "{}")
+            post_token_alerts(data)
+            self._send_json(200, {"ok": True, "message": "Bump and volume alerts posted"})
+        except Exception as e:
+            print(f"[Webhook] Failed to post alerts: {e}")
+            self._send_json(500, {"ok": False, "error": str(e)})
+
+
 def run_health_server():
-    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
-    print("[System] Anti-sleep local web server active on port 10000")
+    server = HTTPServer(("0.0.0.0", 10000), HealthCheckHandler)
+    print("[System] Health + webhook server active on port 10000")
+    print(f"[System] Images dir: {BASE_DIR}")
+    print(f"[System] Bump image: {BUMP_IMAGE_PATH} (exists={os.path.isfile(BUMP_IMAGE_PATH)})")
+    print(f"[System] Volume image: {VOLUME_IMAGE_PATH} (exists={os.path.isfile(VOLUME_IMAGE_PATH)})")
     server.serve_forever()
+
 
 def keep_alive_loop():
     while True:
@@ -200,7 +255,11 @@ def keep_alive_loop():
 # RUNTIME INITIALIZATION
 # ==========================================
 if __name__ == "__main__":
-    # 1. Start Render health check server thread
+    for path in (BUMP_IMAGE_PATH, VOLUME_IMAGE_PATH):
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Required image missing in bot directory: {path}")
+
+    # 1. Start Render health check + webhook server thread
     threading.Thread(target=run_health_server, daemon=True).start()
 
     # 2. Start internal self-ping loop thread
