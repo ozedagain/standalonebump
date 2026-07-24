@@ -20,7 +20,9 @@ PUMP_API_KEY = "adn4ue2ha994wy9m9hwp8gjpf9pm8vhhahpq4uk8e1bk0ukh5d4pmra18x1qct1h
 GROUP_ID = "-1004285512360"
 
 PUMP_BOT_URL = "https://t.me/Pump_officialBot"
-IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bump.jpg")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BUMP_IMAGE_PATH = os.path.join(BASE_DIR, "bump.jpg")
+VOLUME_IMAGE_PATH = os.path.join(BASE_DIR, "volume.png")
 
 BOOST_OPTIONS = [
     "0.25",
@@ -43,17 +45,11 @@ def truncate_address(address: str) -> str:
     return f"{address[:8]}.....{address[-10:]}"
 
 
-# ==========================================
-# TEXT FORMATTING LOGIC
-# ==========================================
-def format_message(data):
+def _token_fields(data):
     ticker = data.get("symbol", data.get("vbc", "UNKNOWN")).upper()
     token_name = data.get("name", "Unknown Name").upper()
     mint_address = data.get("mint", "Unknown Address")
     truncated_ca = truncate_address(mint_address)
-
-    random_boost = random.choice(BOOST_OPTIONS)
-    random_volume = random.choice(VOLUME_OPTIONS)
     random_mc = random.choice(MC_OPTIONS)
 
     twitter = data.get("twitter")
@@ -64,28 +60,66 @@ def format_message(data):
     socials_list.append(f'<a href="{twitter}">𝕏 Twitter</a>' if twitter else "𝕏 Twitter")
     socials_list.append(f'<a href="{telegram}">✈️ Telegram</a>' if telegram else "✈️ Telegram")
     socials_list.append(f'<a href="{website}">🌐 Website</a>' if website else "🌐 Website")
-    socials_text = "  |  ".join(socials_list)
+    socials_text = "  ·  ".join(socials_list)
 
-    pump_link = f"https://pump.fun/coin/{mint_address}"
+    return ticker, token_name, truncated_ca, random_mc, socials_text
 
-    message = (
+
+# ==========================================
+# TEXT FORMATTING LOGIC
+# ==========================================
+def format_bump_message(data):
+    ticker, token_name, truncated_ca, random_mc, socials_text = _token_fields(data)
+    random_boost = random.choice(BOOST_OPTIONS)
+
+    return (
         f"🚀 <b>NEW BUMP ALERT</b>\n"
-        f"                    <b>${ticker}</b>\n"
-        f"Address:  <code>{truncated_ca}</code>\n"
-        f"Boost- {random_boost}\n"
-        f"Volume: {random_volume}\n"
-        f"Name:     {token_name}\n"
-        f"MC:  ${random_mc}k\n\n"
-        f"Socials:  {socials_text}\n\n"
-        f'<a href="{pump_link}">📊 View on Pump.fun</a>'
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💊 <b>${ticker}</b>\n\n"
+        f"📍 <b>Address</b>\n"
+        f"<code>{truncated_ca}</code>\n\n"
+        f"⚡ <b>Boost</b>   →  <code>{random_boost}</code>\n"
+        f"🏷 <b>Name</b>    →  {token_name}\n"
+        f"💰 <b>MC</b>      →  ${random_mc}k\n\n"
+        f"🔗 <b>Socials</b>\n"
+        f"{socials_text}"
     )
-    return message
+
+
+def format_volume_message(data):
+    ticker, token_name, truncated_ca, random_mc, socials_text = _token_fields(data)
+    random_volume = random.choice(VOLUME_OPTIONS)
+
+    return (
+        f"📊 <b>NEW VOLUME ALERT</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💊 <b>${ticker}</b>\n\n"
+        f"📍 <b>Address</b>\n"
+        f"<code>{truncated_ca}</code>\n\n"
+        f"📈 <b>Volume</b>  →  <code>{random_volume}</code>\n"
+        f"🏷 <b>Name</b>    →  {token_name}\n"
+        f"💰 <b>MC</b>      →  ${random_mc}k\n\n"
+        f"🔗 <b>Socials</b>\n"
+        f"{socials_text}"
+    )
 
 
 def create_inline_keyboard():
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(text="💊 Start PumpFun Bot", url=PUMP_BOT_URL))
     return markup
+
+
+def send_alert(image_path, caption):
+    reply_markup = create_inline_keyboard()
+    with open(image_path, "rb") as photo:
+        bot.send_photo(
+            chat_id=GROUP_ID,
+            photo=photo,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+        )
 
 
 # ==========================================
@@ -105,17 +139,12 @@ def listen_to_stream(ws):
                 print(f"[Alert] New token: {data.get('name')} ({data.get('mint')}). Applying 3s delay...")
                 time.sleep(3)
 
-                formatted_caption = format_message(data)
-                reply_markup = create_inline_keyboard()
+                send_alert(BUMP_IMAGE_PATH, format_bump_message(data))
+                print("[Alert] Bump alert posted.")
 
-                with open(IMAGE_PATH, "rb") as photo:
-                    bot.send_photo(
-                        chat_id=GROUP_ID,
-                        photo=photo,
-                        caption=formatted_caption,
-                        parse_mode="HTML",
-                        reply_markup=reply_markup,
-                    )
+                time.sleep(1)
+                send_alert(VOLUME_IMAGE_PATH, format_volume_message(data))
+                print("[Alert] Volume alert posted.")
 
         except json.JSONDecodeError:
             continue
