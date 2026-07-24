@@ -57,12 +57,21 @@ def _token_fields(data):
     website = data.get("website")
 
     socials_list = []
-    socials_list.append(f'<a href="{twitter}">𝕏 Twitter</a>' if twitter else "𝕏 Twitter")
-    socials_list.append(f'<a href="{telegram}">✈️ Telegram</a>' if telegram else "✈️ Telegram")
-    socials_list.append(f'<a href="{website}">🌐 Website</a>' if website else "🌐 Website")
+    if twitter:
+        socials_list.append(f'<a href="{twitter}">𝕏 Twitter</a>')
+    if telegram:
+        socials_list.append(f'<a href="{telegram}">✈️ Telegram</a>')
+    if website:
+        socials_list.append(f'<a href="{website}">🌐 Website</a>')
     socials_text = "  ·  ".join(socials_list)
 
     return ticker, token_name, truncated_ca, random_mc, socials_text
+
+
+def _socials_block(socials_text):
+    if not socials_text:
+        return ""
+    return f"\n\n🔗 <b>Socials</b>\n{socials_text}"
 
 
 # ==========================================
@@ -80,9 +89,8 @@ def format_bump_message(data):
         f"<code>{truncated_ca}</code>\n\n"
         f"⚡ <b>Boost</b>   →  <code>{random_boost}</code>\n"
         f"🏷 <b>Name</b>    →  {token_name}\n"
-        f"💰 <b>MC</b>      →  ${random_mc}k\n\n"
-        f"🔗 <b>Socials</b>\n"
-        f"{socials_text}"
+        f"💰 <b>MC</b>      →  ${random_mc}k"
+        f"{_socials_block(socials_text)}"
     )
 
 
@@ -98,9 +106,8 @@ def format_volume_message(data):
         f"<code>{truncated_ca}</code>\n\n"
         f"📈 <b>Volume</b>  →  <code>{random_volume}</code>\n"
         f"🏷 <b>Name</b>    →  {token_name}\n"
-        f"💰 <b>MC</b>      →  ${random_mc}k\n\n"
-        f"🔗 <b>Socials</b>\n"
-        f"{socials_text}"
+        f"💰 <b>MC</b>      →  ${random_mc}k"
+        f"{_socials_block(socials_text)}"
     )
 
 
